@@ -4,7 +4,7 @@ The demo page and slides from my XtremeJS 2026 talk, **Making Web Bluetooth Work
 
 **Live demo:** https://ifedayoagboola.github.io/chip-on-the-desk/ (Chrome or Edge on Windows, macOS, ChromeOS or Android; Web Bluetooth needs HTTPS and a click)
 
-**Slides:** [slides-xtremejs-2026.pdf](slides-xtremejs-2026.pdf)
+**Slides:** [PDF](slides-xtremejs-2026.pdf) · [PowerPoint](slides-xtremejs-2026.pptx) (Inter and Cascadia Mono, both SIL OFL, give the intended rendering)
 
 ## What the page shows
 
