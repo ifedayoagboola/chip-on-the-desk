@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chip on the Desk</title>
+<meta name="description" content="Web Bluetooth field demo: Chrome talking to an NXP QN9090 running the Proximity Reporter firmware.">
+<style>
+  :root {
+    --ink: #0B1D26;
+    --muted: #5a6670;
+    --line: #E9E8E8;
+    --paper: #FFFFFF;
+    --teal: #0f7a82;
+    --teal-soft: #EAF4F5;
+    --amber: #F2A65A;
+    --red: #b54a2c;
+    --green: #2e7d4f;
+    --log-bg: #0B1D26;
+    --log-ink: #d9e4ea;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink);
+    font-family: Inter, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding: 20px 24px 32px; max-width: 1280px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 26px; margin: 0; letter-spacing: -0.015em; }
+  h1 small { font-weight: 400; color: var(--muted); font-size: 15px; margin-left: 10px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px;
+    font-weight: 600; font-size: 15px; background: var(--teal-soft); color: var(--teal); }
+  .pill::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+  .pill.off { background: #f3f3f3; color: var(--muted); }
+  .pill.busy { background: #fff3e4; color: #a35f12; }
+  .pill.bad { background: #fbeae5; color: var(--red); }
+  .grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 20px; margin-top: 18px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  section.card { padding: 18px 20px; border-top: 3px solid var(--teal); background: #fafafa; }
+  section.card h2 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+  button { font: inherit; font-weight: 600; font-size: 15px; padding: 10px 16px; border: 0; border-radius: 8px;
+    cursor: pointer; background: var(--teal); color: #fff; }
+  button.secondary { background: #e7eaec; color: var(--ink); }
+  button.warn { background: var(--amber); color: var(--ink); }
+  button.danger { background: var(--red); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  label.toggle { display: inline-flex; gap: 8px; align-items: center; font-size: 15px; color: var(--ink); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 15px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .big { font-size: 40px; font-weight: 700; color: var(--teal); letter-spacing: -0.02em; line-height: 1; }
+  .note { font-size: 14px; color: var(--muted); margin: 6px 0 0; line-height: 1.5; }
+  #log { margin-top: 20px; background: var(--log-bg); color: var(--log-ink); border-radius: 10px; padding: 14px 16px;
+    font-family: "JetBrains Mono", Consolas, "Courier New", monospace; font-size: 15px; line-height: 1.55;
+    height: 300px; overflow: auto; white-space: pre-wrap; }
+  #log .t { color: #7fa6b3; }
+  #log .ok { color: #8fd3a3; }
+  #log .err { color: #ffb199; }
+  #log .ev { color: #f7c98b; }
+  .unsupported { background: #fbeae5; color: var(--red); padding: 14px 18px; border-radius: 10px; font-size: 16px; margin-top: 16px; }
+  footer { margin-top: 18px; font-size: 13px; color: var(--muted); }
+  code { font-family: "JetBrains Mono", Consolas, monospace; font-size: 0.92em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Chip on the Desk <small>Web Bluetooth, Chrome, one NXP QN9090 running the Proximity Reporter firmware</small></h1>
+  <span id="status" class="pill off">Not connected</span>
+</header>
+
+<div id="unsupported" class="unsupported" hidden></div>
+
+<div class="grid">
+  <section class="card">
+    <h2>1. Connection</h2>
+    <div class="row">
+      <button id="btnConnect">Find the chip</button>
+      <button id="btnAny" class="secondary" title="Opens the chooser with no filter: if nothing at all appears, Chrome has no Bluetooth permission from the OS; if other devices appear but not the board, the board is not advertising">Show every device nearby</button>
+      <button id="btnDisconnect" class="secondary" disabled>Disconnect</button>
+      <button id="btnForget" class="secondary" disabled>Forget</button>
+    </div>
+    <dl>
+      <dt>Device name</dt><dd id="devName">–</dd>
+      <dt>Device id (per origin)</dt><dd id="devId">–</dd>
+      <dt>Manufacturer</dt><dd id="manuf">–</dd>
+      <dt>Model</dt><dd id="model">–</dd>
+      <dt>Firmware</dt><dd id="fw">–</dd>
+      <dt>Hardware</dt><dd id="hw">–</dd>
+      <dt>TX power</dt><dd id="tx">–</dd>
+      <dt>Permission state</dt><dd id="perm">–</dd>
+    </dl>
+    <p class="note">The chooser only shows devices advertising the Immediate Alert service (0x1802). One device per pick, a user gesture every time, HTTPS or localhost only.</p>
+  </section>
+
+  <section class="card">
+    <h2>2. Immediate Alert (write without response)</h2>
+    <div class="row">
+      <button id="alert0" class="secondary" disabled>No alert</button>
+      <button id="alert1" class="warn" disabled>Mild alert</button>
+      <button id="alert2" class="danger" disabled>High alert</button>
+    </div>
+    <p class="note">Writes one byte to characteristic 0x2A06. On the DK6 board: mild turns LED2 on, high makes LED2 flash, no alert turns it off.</p>
+    <h2 style="margin-top:18px">Link Loss level (write with response)</h2>
+    <div class="row">
+      <button id="lls0" class="secondary" disabled>Off</button>
+      <button id="lls1" class="secondary" disabled>Mild</button>
+      <button id="lls2" class="secondary" disabled>High</button>
+      <span id="llsVal" class="note" style="margin:0">current: –</span>
+    </div>
+    <p class="note">The chip keeps this. When the link drops, the chip itself raises the alert: mild flashes the blue LED, high flashes the green one. The browser only finds out through <code>gattserverdisconnected</code>.</p>
+  </section>
+
+  <section class="card">
+    <h2>3. Battery (read + notify)</h2>
+    <div class="row">
+      <span class="big" id="batt">–</span>
+      <button id="btnBattRead" class="secondary" disabled>Read once</button>
+    </div>
+    <p class="note">The firmware reports a fixed 90%. The point is the shape: one read, then <code>startNotifications</code> and a <code>characteristicvaluechanged</code> listener.</p>
+  </section>
+
+  <section class="card">
+    <h2>4. The GATT queue</h2>
+    <div class="row">
+      <label class="toggle"><input type="checkbox" id="useQueue" checked> Route operations through the queue</label>
+    </div>
+    <div class="row">
+      <button id="btnStress" disabled>Fire 8 reads at once</button>
+      <span class="note" style="margin:0" id="stressResult"></span>
+    </div>
+    <p class="note">Unqueued, concurrent GATT calls race the one radio link and Chrome rejects with <code>NetworkError: GATT operation already in progress</code>. Queued, they run one after another and all succeed.</p>
+  </section>
+
+  <section class="card">
+    <h2>5. Reconnect policy</h2>
+    <div class="row">
+      <label class="toggle"><input type="checkbox" id="autoReconnect" checked> Reconnect after an unexpected drop</label>
+    </div>
+    <dl>
+      <dt>Attempts</dt><dd id="attempts">0</dd>
+      <dt>Next delay</dt><dd id="nextDelay">–</dd>
+    </dl>
+    <p class="note">Exponential backoff: 1s, 2s, 4s, 8s, 16s, then give up. Every <code>connect()</code> has a 10 second timeout, because a hung connect also hangs the next <code>requestDevice()</code>.</p>
+  </section>
+
+  <section class="card">
+    <h2>6. RSSI</h2>
+    <div class="row">
+      <span class="big" id="rssi">–</span>
+      <button id="btnWatchAdv" class="secondary" disabled>Try watchAdvertisements()</button>
+    </div>
+    <p class="note">After <code>connect()</code> Web Bluetooth gives no signal strength at all. <code>watchAdvertisements()</code> and <code>requestLEScan()</code> sit behind <code>chrome://flags/#enable-experimental-web-platform-features</code>. Press the button and watch what this browser says.</p>
+  </section>
+</div>
+
+<div id="log" aria-live="polite"></div>
+<footer>Ifedayo Agboola · XtremeJS 2026 · Everything on this page is plain JavaScript in one file. View source.</footer>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- tiny helpers ----------
+  const $ = (id) => document.getElementById(id);
+  const logEl = $('log');
+  const t0 = performance.now();
+  function log(msg, cls = '') {
+    const t = ((performance.now() - t0) / 1000).toFixed(2).padStart(7, ' ');
+    const line = document.createElement('div');
+    line.innerHTML = `<span class="t">${t}s</span>  <span class="${cls}">${escapeHtml(msg)}</span>`;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+    console.log(`[${t}s] ${msg}`);
+  }
+  function escapeHtml(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  function setStatus(text, cls) { const el = $('status'); el.textContent = text; el.className = `pill ${cls}`; }
+  const decoder = new TextDecoder();
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  function withTimeout(promise, ms, label) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms} ms`)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  }
+
+  // ---------- the GATT queue: one operation in flight, ever ----------
+  class GattQueue {
+    constructor() { this.tail = Promise.resolve(); this.depth = 0; }
+    run(label, op) {
+      this.depth++;
+      const next = this.tail.then(op, op).finally(() => { this.depth--; });
+      // keep the chain alive even when an op fails
+      this.tail = next.catch(() => {});
+      return next;
+    }
+  }
+  const queue = new GattQueue();
+  const gatt = (label, op) => $('useQueue').checked ? queue.run(label, op) : op();
+
+  // ---------- state ----------
+  let device = null;
+  let server = null;
+  let chars = {};              // handles are invalid after a reconnect; always rediscover
+  let intentionalDisconnect = false;
+  let reconnectAttempts = 0;
+  const MAX_ATTEMPTS = 5;
+  let reconnecting = false;
+
+  const SERVICE = {
+    ias: 'immediate_alert',     // 0x1802
+    lls: 'link_loss',           // 0x1803
+    tx:  'tx_power',            // 0x1804
+    bat: 'battery_service',     // 0x180F
+    dis: 'device_information',  // 0x180A
+  };
+
+  // ---------- feature detection ----------
+  async function detect() {
+    if (!('bluetooth' in navigator)) {
+      const box = $('unsupported');
+      box.hidden = false;
+      box.textContent = 'This browser has no navigator.bluetooth. Web Bluetooth ships in Chrome and Edge on Windows, macOS, ChromeOS and Android. Firefox and Safari have no plan to ship it. On iOS, only wrapper apps like Bluefy expose it.';
+      $('btnConnect').disabled = true;
+      log('navigator.bluetooth is undefined in this browser', 'err');
+      return;
+    }
+    log(`userAgent: ${navigator.userAgent}`);
+    try {
+      const avail = await navigator.bluetooth.getAvailability();
+      log(`getAvailability() -> ${avail}`, avail ? 'ok' : 'err');
+      if (!avail) setStatus('No Bluetooth radio', 'bad');
+    } catch (e) { log(`getAvailability() threw: ${e.message}`, 'err'); }
+    await refreshPermission();
+    if (navigator.bluetooth.getDevices) {
+      try {
+        const known = await navigator.bluetooth.getDevices();
+        log(`getDevices() -> ${known.length} previously permitted device(s)` + (known.length ? ': ' + known.map(d => d.name || d.id).join(', ') : ''));
+      } catch (e) { log(`getDevices() threw: ${e.message}`, 'err'); }
+    } else {
+      log('getDevices() is not exposed (flag: chrome://flags/#enable-experimental-web-platform-features)');
+    }
+  }
+
+  async function refreshPermission() {
+    try {
+      const st = await navigator.permissions.query({ name: 'bluetooth' });
+      $('perm').textContent = st.state;
+    } catch { $('perm').textContent = 'query unsupported'; }
+  }
+
+  // ---------- connect ----------
+  async function connectFlow() {
+    try {
+      setStatus('Choosing…', 'busy');
+      intentionalDisconnect = false;
+      log('requestDevice({ filters: [{ services: ["immediate_alert"] }] })');
+      device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [SERVICE.ias] }],
+        optionalServices: [SERVICE.lls, SERVICE.tx, SERVICE.bat, SERVICE.dis],
+      });
+      log(`chosen: name="${device.name}" id=${device.id}`, 'ok');
+      $('devName').textContent = device.name || '(no name)';
+      $('devId').textContent = device.id;
+      device.addEventListener('gattserverdisconnected', onDisconnected);
+      device.addEventListener('advertisementreceived', onAdvertisement);
+      await connectAndDiscover();
+      await refreshPermission();
+    } catch (e) {
+      log(`${e.name}: ${e.message}`, 'err');
+      setStatus(e.name === 'NotFoundError' ? 'Chooser cancelled' : 'Failed', e.name === 'NotFoundError' ? 'off' : 'bad');
+    }
+  }
+
+  async function connectAndDiscover() {
+    setStatus('Connecting…', 'busy');
+    log('gatt.connect()');
+    server = await gatt('connect', () => withTimeout(device.gatt.connect(), 10000, 'connect()'));
+    log('connected, discovering services', 'ok');
+    chars = {};
+
+    const ias = await gatt('svc ias', () => server.getPrimaryService(SERVICE.ias));
+    chars.alert = await gatt('chr alert', () => ias.getCharacteristic('alert_level'));
+
+    try {
+      const lls = await gatt('svc lls', () => server.getPrimaryService(SERVICE.lls));
+      chars.lls = await gatt('chr lls', () => lls.getCharacteristic('alert_level'));
+      const v = await gatt('read lls', () => chars.lls.readValue());
+      $('llsVal').textContent = `current: ${['Off','Mild','High'][v.getUint8(0)] ?? v.getUint8(0)}`;
+    } catch (e) { log(`link loss: ${e.message}`, 'err'); }
+
+    try {
+      const tx = await gatt('svc tx', () => server.getPrimaryService(SERVICE.tx));
+      chars.tx = await gatt('chr tx', () => tx.getCharacteristic('tx_power_level'));
+      const v = await gatt('read tx', () => chars.tx.readValue());
+      $('tx').textContent = `${v.getInt8(0)} dBm`;
+      log(`tx power = ${v.getInt8(0)} dBm (DataView, 1 signed byte)`);
+    } catch (e) { log(`tx power: ${e.message}`, 'err'); }
+
+    try {
+      const dis = await gatt('svc dis', () => server.getPrimaryService(SERVICE.dis));
+      const read = async (name, id) => {
+        const c = await gatt(`chr ${name}`, () => dis.getCharacteristic(name));
+        const v = await gatt(`read ${name}`, () => c.readValue());
+        $(id).textContent = decoder.decode(v);
+      };
+      await read('manufacturer_name_string', 'manuf');
+      await read('model_number_string', 'model');
+      await read('firmware_revision_string', 'fw');
+      await read('hardware_revision_string', 'hw');
+      log(`device info: ${$('manuf').textContent} / ${$('model').textContent} / fw ${$('fw').textContent} / ${$('hw').textContent}`);
+    } catch (e) { log(`device info: ${e.message}`, 'err'); }
+
+    try {
+      const bat = await gatt('svc bat', () => server.getPrimaryService(SERVICE.bat));
+      chars.batt = await gatt('chr batt', () => bat.getCharacteristic('battery_level'));
+      const v = await gatt('read batt', () => chars.batt.readValue());
+      $('batt').textContent = `${v.getUint8(0)}%`;
+      await gatt('notify batt', () => chars.batt.startNotifications());
+      chars.batt.addEventListener('characteristicvaluechanged', (ev) => {
+        const val = ev.target.value.getUint8(0);
+        $('batt').textContent = `${val}%`;
+        log(`notification: battery ${val}%`, 'ev');
+      });
+      log('battery notifications on');
+    } catch (e) { log(`battery: ${e.message}`, 'err'); }
+
+    reconnectAttempts = 0;
+    $('attempts').textContent = '0';
+    $('nextDelay').textContent = '–';
+    setStatus(`Connected to ${device.name || 'device'}`, '');
+    setConnectedUi(true);
+  }
+
+  function setConnectedUi(on) {
+    for (const id of ['btnDisconnect','alert0','alert1','alert2','lls0','lls1','lls2','btnBattRead','btnStress','btnWatchAdv']) $(id).disabled = !on;
+    $('btnForget').disabled = !device || !device.forget;
+    $('btnConnect').disabled = on;
+  }
+
+  // ---------- disconnect + reconnect ----------
+  async function onDisconnected() {
+    log('event: gattserverdisconnected', 'ev');
+    setConnectedUi(false);
+    chars = {};
+    if (intentionalDisconnect) { setStatus('Disconnected', 'off'); return; }
+    setStatus('Link lost', 'bad');
+    if (!$('autoReconnect').checked || reconnecting) return;
+    reconnecting = true;
+    try {
+      while (reconnectAttempts < MAX_ATTEMPTS) {
+        const delay = 1000 * 2 ** reconnectAttempts;
+        reconnectAttempts++;
+        $('attempts').textContent = String(reconnectAttempts);
+        $('nextDelay').textContent = `${delay / 1000}s`;
+        log(`reconnect attempt ${reconnectAttempts}/${MAX_ATTEMPTS} in ${delay / 1000}s`);
+        await sleep(delay);
+        if (intentionalDisconnect) return;
+        try {
+          await connectAndDiscover();
+          log('reconnected, handles rediscovered', 'ok');
+          return;
+        } catch (e) {
+          log(`reconnect failed: ${e.name}: ${e.message}`, 'err');
+        }
+      }
+      setStatus('Gave up reconnecting', 'bad');
+      log('gave up; the user can press Find the chip again', 'err');
+    } finally { reconnecting = false; }
+  }
+
+  // ---------- writes ----------
+  async function setAlert(level) {
+    if (!chars.alert) return;
+    try {
+      await gatt('write alert', () => chars.alert.writeValueWithoutResponse(Uint8Array.of(level)));
+      log(`immediate alert <- ${level} (${['none','mild','high'][level]}) written without response`, 'ok');
+    } catch (e) { log(`write failed: ${e.name}: ${e.message}`, 'err'); }
+  }
+  async function setLinkLoss(level) {
+    if (!chars.lls) return;
+    try {
+      await gatt('write lls', () => chars.lls.writeValueWithResponse(Uint8Array.of(level)));
+      $('llsVal').textContent = `current: ${['Off','Mild','High'][level]}`;
+      log(`link loss level <- ${level} written with response (the chip acknowledged)`, 'ok');
+    } catch (e) { log(`write failed: ${e.name}: ${e.message}`, 'err'); }
+  }
+
+  // ---------- the stress test ----------
+  async function stress() {
+    if (!chars.batt && !chars.tx) return;
+    const target = chars.batt || chars.tx;
+    const queued = $('useQueue').checked;
+    log(`firing 8 concurrent readValue() calls, queue ${queued ? 'ON' : 'OFF'}`);
+    const started = performance.now();
+    const results = await Promise.allSettled(Array.from({ length: 8 }, (_, i) =>
+      gatt(`stress ${i}`, () => target.readValue())
+    ));
+    const ok = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected');
+    const ms = Math.round(performance.now() - started);
+    failed.slice(0, 3).forEach(r => log(`  ${r.reason.name}: ${r.reason.message}`, 'err'));
+    log(`result: ${ok}/8 succeeded, ${failed.length} failed, ${ms} ms total`, failed.length ? 'err' : 'ok');
+    $('stressResult').textContent = `${ok}/8 ok · ${ms} ms`;
+  }
+
+  // ---------- RSSI / advertisements ----------
+  function onAdvertisement(ev) {
+    $('rssi').textContent = `${ev.rssi} dBm`;
+    log(`advertisementreceived: rssi ${ev.rssi} dBm txPower ${ev.txPower ?? '?'}`, 'ev');
+  }
+  async function tryWatch() {
+    if (!device) return;
+    if (!device.watchAdvertisements) {
+      log('device.watchAdvertisements is undefined in this browser build', 'err');
+      $('rssi').textContent = 'n/a';
+      return;
+    }
+    try {
+      await device.watchAdvertisements();
+      log('watchAdvertisements() accepted; a connected peripheral may not advertise at all, so RSSI may stay empty', 'ok');
+    } catch (e) {
+      log(`watchAdvertisements() -> ${e.name}: ${e.message}`, 'err');
+      $('rssi').textContent = 'n/a';
+    }
+  }
+
+  // ---------- wiring ----------
+  $('btnConnect').onclick = connectFlow;
+  $('btnAny').onclick = async () => {
+    try {
+      log('requestDevice({ acceptAllDevices: true }) : diagnostic, lists everything Chrome can hear');
+      const t = performance.now();
+      const d = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SERVICE.ias, SERVICE.lls, SERVICE.tx, SERVICE.bat, SERVICE.dis] });
+      log(`chosen: name="${d.name}" id=${d.id} after ${Math.round(performance.now() - t)} ms`, 'ok');
+      device = d;
+      device.addEventListener('gattserverdisconnected', onDisconnected);
+      device.addEventListener('advertisementreceived', onAdvertisement);
+      await connectAndDiscover();
+    } catch (e) {
+      log(`${e.name}: ${e.message}`, 'err');
+      if (e.name === 'NotFoundError') log('If the chooser listed nothing at all: on macOS open System Settings > Privacy & Security > Bluetooth and switch Google Chrome on, then reload. If it listed other devices but not the board: the board is not advertising; press SW1 on the board and try again within 30 seconds.', 'err');
+    }
+  };
+  $('btnDisconnect').onclick = () => {
+    intentionalDisconnect = true;
+    log('user asked to disconnect');
+    device?.gatt?.disconnect();
+  };
+  $('btnForget').onclick = async () => {
+    try { await device.forget(); log('device.forget(): permission revoked for this origin', 'ok'); device = null; setConnectedUi(false); setStatus('Forgotten', 'off'); await refreshPermission(); }
+    catch (e) { log(`forget(): ${e.message}`, 'err'); }
+  };
+  $('alert0').onclick = () => setAlert(0);
+  $('alert1').onclick = () => setAlert(1);
+  $('alert2').onclick = () => setAlert(2);
+  $('lls0').onclick = () => setLinkLoss(0);
+  $('lls1').onclick = () => setLinkLoss(1);
+  $('lls2').onclick = () => setLinkLoss(2);
+  $('btnBattRead').onclick = async () => {
+    try { const v = await gatt('read batt', () => chars.batt.readValue()); $('batt').textContent = `${v.getUint8(0)}%`; log(`battery read ${v.getUint8(0)}%`, 'ok'); }
+    catch (e) { log(`read failed: ${e.name}: ${e.message}`, 'err'); }
+  };
+  $('btnStress').onclick = stress;
+  $('btnWatchAdv').onclick = tryWatch;
+
+  log('page loaded; secure context = ' + window.isSecureContext);
+  detect();
+})();
+</script>
+</body>
+</html>
